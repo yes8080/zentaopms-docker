@@ -1,0 +1,25 @@
+services:
+  php:
+    build:
+      args:
+        ZENTAO_CACHE_EXTENSION: redis
+    environment:
+      ZT_CACHE_ENABLE: "1"
+      ZT_CACHE_DRIVER: redis
+      ZT_CACHE_SCOPE: shared
+      ZT_CACHE_NAMESPACE: ${MYSQL_DATABASE:-zentao}
+      ZT_REDIS_HOST: redis
+      ZT_REDIS_PORT: "6379"
+      ZT_REDIS_SERIALIZER: php
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

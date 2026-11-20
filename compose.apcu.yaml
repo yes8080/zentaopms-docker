@@ -1,0 +1,10 @@
+services:
+  php:
+    build:
+      args:
+        ZENTAO_CACHE_EXTENSION: apcu
+    environment:
+      ZT_CACHE_ENABLE: "1"
+      ZT_CACHE_DRIVER: apcu
+      ZT_CACHE_SCOPE: shared
+      ZT_CACHE_NAMESPACE: ${MYSQL_DATABASE:-zentao}

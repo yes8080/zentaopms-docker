@@ -1,4 +1,4 @@
-FROM php:8.4-fpm-bookworm AS php
+FROM php:8.4-fpm-bookworm AS php-base
 
 RUN --mount=type=secret,id=apt_ca_bundle,mode=0444 \
     set -- \
@@ -20,6 +20,24 @@ RUN chmod -R a+rX /var/www/zentao \
     && ln -s /var/lib/zentao/config/my.php config/my.php \
     && chown -R www-data:www-data /var/lib/zentao/config config tmp www www/data
 
+FROM php-base AS php
+ARG ZENTAO_CACHE_EXTENSION=none
+RUN --mount=type=secret,id=apt_ca_bundle,mode=0444 \
+    set -eu; \
+    case "$ZENTAO_CACHE_EXTENSION" in \
+        none) exit 0 ;; \
+        apcu) package=apcu-5.1.28; checksum=ca9c1820810a168786f8048a4c3f8c9e3fd941407ad1553259fb2e30b5f057bf ;; \
+        redis) package=redis-6.3.0; checksum=0d5141f634bd1db6c1ddcda053d25ecf2c4fc1c395430d534fd3f8d51dd7f0b5 ;; \
+        *) echo "Unsupported cache extension: $ZENTAO_CACHE_EXTENSION" >&2; exit 1 ;; \
+    esac; \
+    set --; \
+    if [ -s /run/secrets/apt_ca_bundle ]; then set -- --cacert /run/secrets/apt_ca_bundle; fi; \
+    curl "$@" --fail --silent --show-error --location "https://pecl.php.net/get/$package.tgz" -o "/tmp/$package.tgz"; \
+    printf '%s  %s\n' "$checksum" "/tmp/$package.tgz" | sha256sum -c -; \
+    pecl install "/tmp/$package.tgz" </dev/null; \
+    docker-php-ext-enable "$ZENTAO_CACHE_EXTENSION"; \
+    rm -rf "/tmp/$package.tgz" /tmp/pear
+
 FROM nginx:1.28-alpine AS nginx
 COPY --from=deployment nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=php /var/www/zentao/www/ /var/www/zentao/www/
+COPY --from=php-base /var/www/zentao/www/ /var/www/zentao/www/
