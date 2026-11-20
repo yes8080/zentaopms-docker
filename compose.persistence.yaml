@@ -5,7 +5,6 @@ services:
 
   php:
     volumes:
-      - app-config:/var/lib/zentao/config
       - host-app-data:/var/www/zentao/www/data
 
   nginx:

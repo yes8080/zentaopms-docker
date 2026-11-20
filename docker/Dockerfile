@@ -1,4 +1,4 @@
-FROM php:8.4-fpm-bookworm AS php-base
+FROM php:8.4-fpm-bookworm@sha256:e4b1eec29a5be22428aa93fb43da75a0e39006e403da0c3e93631dde92f067df AS php-base
 
 RUN --mount=type=secret,id=apt_ca_bundle,mode=0444 \
     set -- \
@@ -49,7 +49,7 @@ RUN --mount=type=secret,id=apt_ca_bundle,mode=0444 \
     esac; \
     rm -rf /tmp/pear
 
-FROM nginx:1.28-alpine AS nginx
+FROM nginx:1.30.7-alpine@sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c54193075997b3a97e3 AS nginx
 COPY --from=deployment nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=php-base /var/www/zentao/www/ /var/www/zentao/www/
 
@@ -61,7 +61,12 @@ RUN php -r 'exit(version_compare(PHP_VERSION, "8.4.27", ">=") ? 0 : 1);' \
     && php -l framework/base/router.class.php \
     && rm /usr/local/share/harden-router.php www/install.php www/upgrade.php \
     && mv tmp /usr/local/share/zentao-runtime \
-    && mkdir tmp
+    && mkdir tmp \
+    && apt-mark manual libfreetype6 libicu72 libjpeg62-turbo libpng16-16 libzip4 \
+    && apt-get purge -y --auto-remove autoconf dpkg-dev g++ gcc libc6-dev make pkg-config re2c \
+        libfreetype6-dev libicu-dev libjpeg62-turbo-dev libpng-dev libzip-dev \
+    && php -r 'foreach (["bcmath", "gd", "intl", "mysqli", "pdo_mysql", "zip"] as $ext) if (!extension_loaded($ext)) exit(1);' \
+    && printf 'log_errors=On\nerror_log=/proc/self/fd/2\n' > /usr/local/etc/php/conf.d/zentao-hardened.ini
 ENTRYPOINT ["zentao-hardened-entrypoint"]
 CMD ["php-fpm"]
 

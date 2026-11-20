@@ -1,3 +1,9 @@
+x-hardened-logging: &hardened-logging
+  driver: local
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   mysql:
     command:
@@ -5,13 +11,21 @@ services:
       - --general-log-file=/var/lib/mysql/general.log
       - --secure-file-priv=NULL
       - --local-infile=OFF
+    logging: *hardened-logging
+    pids_limit: 256
+    mem_limit: 2g
 
   php:
     build:
       target: php-hardened
+    user: "33:33"
     read_only: true
+    cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    logging: *hardened-logging
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,mode=1777
       - /var/www/zentao/tmp:rw,noexec,nosuid,nodev,uid=33,gid=33,mode=0770
@@ -22,8 +36,13 @@ services:
     build:
       target: nginx-hardened
     read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, KILL, NET_BIND_SERVICE, SETGID, SETUID]
     security_opt:
       - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    logging: *hardened-logging
     tmpfs:
       - /var/cache/nginx:rw,noexec,nosuid,nodev
       - /var/run:rw,noexec,nosuid,nodev

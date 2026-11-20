@@ -1,6 +1,6 @@
 # 禅道 Docker 部署
 
-本仓库维护禅道 22.7 的 Docker Compose 配置。从相邻的 [zentaopms](https://github.com/yes8080/zentaopms) 源码检出构建 PHP 8.4 FPM 和 Nginx 1.28，数据库使用 MySQL 8.4。需要 Docker Engine 和支持附加构建上下文的 Docker Compose v2。
+本仓库维护禅道 22.7 的 Docker Compose 配置。从相邻的 [zentaopms](https://github.com/yes8080/zentaopms) 源码检出构建 PHP 8.4 FPM 和 Nginx 1.30，数据库使用 MySQL 8.4。需要 Docker Engine 和支持附加构建上下文的 Docker Compose v2。
 
 ## 启动
 
@@ -50,7 +50,7 @@ docker compose -f compose.yaml -f compose.persistence.yaml -f compose.redis.yaml
 docker compose -f compose.yaml -f compose.apcu.yaml up -d --build --wait
 ```
 
-**Redis** 启用 PHP Redis 扩展和 Compose 网络内的 Redis 服务。Redis 不发布宿主机端口，缓存数据仅保存在内存中。
+**Redis** 启用 PHP Redis 扩展和内部数据网络中的 Redis 服务。Redis 不发布宿主机端口，缓存数据仅保存在内存中。启用前运行 `openssl rand -hex 24`，将结果填入 `.env` 的 `ZT_REDIS_PASSWORD`。密码至少需要 32 个十六进制字符。
 
 ```sh
 docker compose -f compose.yaml -f compose.redis.yaml up -d --build --wait
@@ -58,7 +58,7 @@ docker compose -f compose.yaml -f compose.redis.yaml up -d --build --wait
 
 Redis 镜像同时支持 PHP 内置序列化器和 igbinary。默认使用 `php`，也可以在 `.env` 中设置 `ZT_REDIS_SERIALIZER=igbinary`。升级旧镜像时，先用上面的 `--build` 命令重建。
 
-禅道数据库中已保存的缓存设置优先于容器配置。已有站点启用或切换缓存时，在「后台 → 系统 → 缓存设置」确认驱动与序列化方式。使用 Redis 时，主机填 `redis`，端口填 `6379`，数据库选 `0`，用户名和密码留空。切换序列化方式时清理禅道缓存，避免读取旧格式数据。使用 APCu 时选择共享模式。命名空间可填应用数据库名。
+禅道数据库中已保存的缓存设置优先于容器配置。已有站点在升级到需要 Redis 认证的版本前，先在「后台 → 系统 → 缓存设置」关闭旧 Redis 缓存。升级并启动后，再在后台启用 Redis，主机填 `redis`，端口填 `6379`，数据库选 `0`，用户名留空，密码填 `ZT_REDIS_PASSWORD` 对应的值。切换序列化方式时清理禅道缓存。使用 APCu 时选择共享模式。命名空间可填应用数据库名。
 
 恢复默认缓存配置前，先在禅道后台关闭缓存，再省略缓存配置文件并添加 `--remove-orphans`。若正在使用宿主机目录挂载，继续传入 `-f compose.persistence.yaml`。下面的命令适用于默认命名卷部署，也会清理先前启用的 Redis 容器。
 
@@ -128,7 +128,18 @@ docker compose -f compose.yaml -f compose.hardened.yaml up -d --no-build --wait
 - PHP 和 Nginx 以只读根文件系统运行。禅道配置卷只读。PHP 仅为应用临时目录、系统临时目录和应用数据卷保留写权限。缓存、会话和本地日志随 PHP 容器重建清空。禅道内部仍可生成并读取临时 PHP 缓存，临时目录位于 Web 根目录之外。
 - Nginx 只将受支持的入口交给 PHP-FPM，拒绝访问 Adminer、隐藏文件、安装与升级入口以及数据目录中的服务端脚本。上传目录设置浏览器沙箱，Nginx 对数据卷保持只读。
 - 禅道按解析后的路由阻止在线编辑、二次开发、运行时插件变更和接收客户端 SQL 的图表预览接口。此配置会禁用对应的 BI 预览。需要的扩展由运维审查后随镜像发布。
-- 常规登录提交按来源 IP 限流并返回 HTTP 429，所有 PHP 请求另有通用速率限制，禅道保留自身的账号失败次数和锁定机制。反向代理后部署时，应由运维按实际拓扑配置可信代理，否则限流按代理地址计数。
+- 常规登录提交按来源 IP 限流并返回 HTTP 429，所有 PHP 请求另有通用速率限制，禅道保留自身的账号失败次数和锁定机制。对外服务时在可信反向代理终止 HTTPS，限制后端端口只接受该代理访问，并在代理按真实客户端地址统一限流。直接使用 Compose 端口时按连接来源计数。
 - MySQL 与 Web 文件隔离。业务账号仅使用应用库的权限，新数据库仅创建本地 root 账号。安全增强模式关闭 general log、服务端文件导入导出和客户端本地文件导入。PHP 镜像构建要求 PHP 8.4.27 或更新版本。
+- Nginx 只加入 Web 网络，MySQL 和 Redis 只加入内部数据网络，PHP 加入两者。PHP 以非 root 用户运行，PHP、Nginx 和 Redis 收敛 capabilities，并设置内存和进程数上限。
+- 容器标准输出使用轮转日志。需要跨容器重建保留的日志应交给部署环境的集中采集服务。禅道保存在数据库里的错误日志随数据库卷保留。
+
+发布前，从干净的指定源码提交构建，记录两个仓库的提交和镜像摘要。基础镜像固定到摘要，安全更新需更新摘要后重建。发布环境应生成 SBOM，并对最终部署的 PHP、Nginx、MySQL 及可选 Redis 镜像运行漏洞扫描。
+
+使用 Trivy 时，对每个待发布镜像运行以下命令。将 `IMAGE` 设置为实际构建的镜像名称或摘要。
+
+```sh
+trivy image --format spdx-json --output image.spdx.json "$IMAGE"
+trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 "$IMAGE"
+```
 
 历史站点还需在部署时轮换已暴露的密码和密钥、清理测试账号、核查既有 MySQL root 授权及受影响的文件和数据。建议在禅道后台启用登录验证码并提高口令策略。镜像部署不会清理既有数据库里的账号或处理历史入侵。先核查来源目录、扩展及持久化文件，再将历史数据迁入干净实例。

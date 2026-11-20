@@ -10,16 +10,40 @@ services:
       ZT_CACHE_NAMESPACE: ${MYSQL_DATABASE:-zentao}
       ZT_REDIS_HOST: redis
       ZT_REDIS_PORT: "6379"
+      ZT_REDIS_PASSWORD: ${ZT_REDIS_PASSWORD:?Set ZT_REDIS_PASSWORD in .env}
       ZT_REDIS_SERIALIZER: ${ZT_REDIS_SERIALIZER:-php}
     depends_on:
       redis:
         condition: service_healthy
 
   redis:
-    image: redis:7.4-alpine
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    image: redis:7.4-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
+    networks: [data]
+    user: redis
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,mode=1777
+    environment:
+      ZT_REDIS_PASSWORD: ${ZT_REDIS_PASSWORD:?Set ZT_REDIS_PASSWORD in .env}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        case "$$ZT_REDIS_PASSWORD" in
+          *[!0-9a-fA-F]*) echo "ZT_REDIS_PASSWORD must be hexadecimal" >&2; exit 1 ;;
+        esac
+        if [ "$${#ZT_REDIS_PASSWORD}" -lt 32 ]; then
+          echo "ZT_REDIS_PASSWORD must contain at least 32 hexadecimal characters" >&2
+          exit 1
+        fi
+        umask 077
+        printf 'requirepass %s\nsave ""\nappendonly no\n' "$$ZT_REDIS_PASSWORD" > /tmp/zentao-redis.conf
+        exec redis-server /tmp/zentao-redis.conf
+    pids_limit: 64
+    mem_limit: 512m
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$ZT_REDIS_PASSWORD\" redis-cli ping | grep -qx PONG"]
       interval: 5s
       timeout: 3s
       retries: 10
