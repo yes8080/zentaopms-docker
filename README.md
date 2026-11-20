@@ -51,10 +51,10 @@ docker compose up -d --build --wait --remove-orphans
 
 默认使用 Docker 命名卷。也可以像官方镜像一样指定一个宿主机目录集中存放持久化数据。这里由独立的 MySQL、PHP 和 Nginx 容器分别挂载所需的子目录。
 
-在 `.env` 中设置 `ZENTAO_DATA_DIR=/srv/zentao`，使用 Docker 主机上的绝对路径。先创建三个子目录，再启动服务：
+在 `.env` 中设置 `ZENTAO_DATA_DIR=/data/zentao`，使用 Docker 主机上的绝对路径。先创建三个子目录，再启动服务：
 
 ```sh
-mkdir -p /srv/zentao/mysql /srv/zentao/config /srv/zentao/data
+mkdir -p /data/zentao/mysql /data/zentao/config /data/zentao/data
 docker compose -f compose.yaml -f compose.persistence.yaml up -d --build --wait
 ```
 
