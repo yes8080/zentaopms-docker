@@ -1,0 +1,33 @@
+services:
+  mysql:
+    volumes:
+      - host-mysql-data:/var/lib/mysql
+
+  php:
+    volumes:
+      - host-app-config:/var/lib/zentao/config
+      - host-app-data:/var/www/zentao/www/data
+
+  nginx:
+    volumes:
+      - host-app-data:/var/www/zentao/www/data:ro
+
+volumes:
+  host-mysql-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: "${ZENTAO_DATA_DIR:?Set ZENTAO_DATA_DIR to an absolute host directory}/mysql"
+  host-app-config:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: "${ZENTAO_DATA_DIR:?Set ZENTAO_DATA_DIR to an absolute host directory}/config"
+  host-app-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: "${ZENTAO_DATA_DIR:?Set ZENTAO_DATA_DIR to an absolute host directory}/data"

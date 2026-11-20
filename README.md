@@ -39,11 +39,36 @@ docker compose -f compose.yaml -f compose.redis.yaml up -d --build --wait
 
 禅道数据库中已保存的缓存设置优先于容器配置。已有站点启用或切换缓存时，在「后台 → 系统 → 缓存设置」确认驱动与所选配置一致。使用 Redis 时，主机填 `redis`，端口填 `6379`，数据库选 `0`，序列化方式选 `php`，用户名和密码留空。使用 APCu 时选择共享模式。命名空间可填应用数据库名。
 
-恢复默认部署前，先在禅道后台关闭缓存，再运行以下命令。该命令也会清理先前启用的 Redis 容器。
+恢复默认缓存配置前，先在禅道后台关闭缓存，再省略缓存配置文件并添加 `--remove-orphans`。若正在使用宿主机目录挂载，继续传入 `-f compose.persistence.yaml`。下面的命令适用于默认命名卷部署，也会清理先前启用的 Redis 容器。
 
 ```sh
 docker compose up -d --build --wait --remove-orphans
 ```
+
+## 挂载到宿主机目录
+
+默认使用 Docker 命名卷。也可以像官方镜像一样指定一个宿主机目录集中存放持久化数据。这里由独立的 MySQL、PHP 和 Nginx 容器分别挂载所需的子目录。
+
+在 `.env` 中设置 `ZENTAO_DATA_DIR=/srv/zentao`，使用 Docker 主机上的绝对路径。先创建三个子目录，再启动服务：
+
+```sh
+mkdir -p /srv/zentao/mysql /srv/zentao/config /srv/zentao/data
+docker compose -f compose.yaml -f compose.persistence.yaml up -d --build --wait
+```
+
+| 子目录 | 内容 |
+| --- | --- |
+| `mysql/` | MySQL 数据文件 |
+| `config/` | 禅道安装生成的 `my.php`，含数据库连接信息 |
+| `data/` | 附件和应用数据，Nginx 以只读方式挂载 |
+
+空子目录会在首次启动时初始化。后续更新、重启或停止时继续传入 `-f compose.persistence.yaml`，使用缓存时可以再叠加对应配置文件。例如：
+
+```sh
+docker compose -f compose.yaml -f compose.persistence.yaml -f compose.redis.yaml up -d --build --wait
+```
+
+已有站点切换前，先备份并把原命名卷中的数据迁入新目录。从官方一体化镜像迁移时，应导出并导入数据库、迁移附件，并核对新容器的数据库连接设置。部署后如需更换宿主机路径，先备份并迁移三个子目录，停止容器并删除对应的三个 `host-*` Docker 卷定义，再用新路径重新启动。[官方 Docker 部署文档](https://www.zentao.net/book/zentaopms/docker-1111.html)
 
 ## 源码更新和数据
 
