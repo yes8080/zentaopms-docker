@@ -1,0 +1,9 @@
+services:
+  mysql:
+    build:
+      args:
+        ZENTAO_REFRESH_OS_PACKAGES: "1"
+  nginx:
+    build:
+      args:
+        ZENTAO_REFRESH_OS_PACKAGES: "1"

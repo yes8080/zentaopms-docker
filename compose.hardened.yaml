@@ -6,6 +6,12 @@ x-hardened-logging: &hardened-logging
 
 services:
   mysql:
+    image: ${COMPOSE_PROJECT_NAME:-zentaopms-docker}-mysql-hardened:local
+    pull_policy: never
+    build:
+      context: ./docker
+      dockerfile: mysql.hardened.Dockerfile
+      secrets: [apt_ca_bundle]
     command:
       - --general-log=OFF
       - --general-log-file=/var/lib/mysql/general.log
@@ -35,14 +41,21 @@ services:
   nginx:
     build:
       target: nginx-hardened
+    user: "101:101"
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "80"
     read_only: true
     cap_drop: [ALL]
-    cap_add: [CHOWN, KILL, NET_BIND_SERVICE, SETGID, SETUID]
     security_opt:
       - no-new-privileges:true
     pids_limit: 128
     mem_limit: 512m
     logging: *hardened-logging
     tmpfs:
-      - /var/cache/nginx:rw,noexec,nosuid,nodev
-      - /var/run:rw,noexec,nosuid,nodev
+      - /var/cache/nginx:rw,noexec,nosuid,nodev,uid=101,gid=101,mode=0700
+      - /run:rw,noexec,nosuid,nodev,uid=101,gid=101,mode=0700
+
+# With no custom CA the builder uses its distribution trust store.
+secrets:
+  apt_ca_bundle:
+    file: ${ZENTAO_BUILD_CA_FILE:-./docker/empty-ca.pem}

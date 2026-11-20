@@ -1,6 +1,6 @@
 # 禅道 Docker 部署
 
-本仓库维护禅道 22.7 的 Docker Compose 配置。从相邻的 [zentaopms](https://github.com/yes8080/zentaopms) 源码检出构建 PHP 8.4 FPM 和 Nginx 1.30，数据库使用 MySQL 8.4。需要 Docker Engine 和支持附加构建上下文的 Docker Compose v2。
+本仓库维护禅道 22.7 的 Docker Compose 配置。部署镜像运行 PHP-FPM，RoadRunner worker、其专用 cron 入口、商业扩展专用的 SheetJS 和旧 Vue 2 资源已从构建上下文排除。大屏模块继续使用自带的 Vue 3。从相邻的 [zentaopms](https://github.com/yes8080/zentaopms) 源码检出构建 PHP 8.4 FPM 和 Nginx 1.30，数据库使用 MySQL 8.4。需要 Docker Engine 和支持附加构建上下文、环境变量来源 secrets 的 Docker Compose v2。本项目在 Compose v2.40.3 上验证。
 
 ## 启动
 
@@ -69,7 +69,7 @@ dc() {
     -f compose.redis.yaml -f compose.hardened.yaml "$@"
 }
 dc config --quiet &&
-dc build --pull php nginx &&
+dc build --pull mysql php nginx &&
 dc up -d --no-build --wait &&
 ./scripts/check-deployment.sh http://127.0.0.1:8080 site
 ```
@@ -193,6 +193,47 @@ docker compose -f compose.yaml -f compose.persistence.yaml -f compose.redis.yaml
 
 常规镜像更新会复用现有数据卷。迁移已有安装或进行数据库升级前，请备份数据库、应用配置和上传文件。
 
+### 已安装 22.7 站点的认证与集成迁移
+
+先记录当前镜像 ID。维护窗口内停止 Web 写入，备份数据库、配置卷和附件卷；旧容器中的内置备份如尚未导出，在替换容器前复制 `/var/www/zentao/tmp/backup`。新部署将该路径挂到项目的 `app-backup` 卷。即使应用临时目录使用 tmpfs，也可跨容器重建保留备份。自定义过备份目录的站点应单独持久化该目录。异机恢复仍需导出备份并妥善保管解密所需凭据。
+
+使用实际项目名、原有数据卷及全部部署文件启动 MySQL，保持 PHP 和 Nginx 停止。下面的命令适用于默认 MySQL 表名与新版 Compose；如现有业务表前缀不同，先核对 SQL 里的表名。新装 22.7 已包含这两份结构变更。
+
+```sh
+docker compose build
+docker compose stop nginx php
+docker compose up -d --no-build --wait mysql
+( set -e
+for migration in ../zentaopms/db/secure-user-passwords.sql ../zentaopms/db/secure-provider-credentials.sql; do
+  docker compose exec -T mysql sh -ec 'MYSQL_PWD="$(cat "$MYSQL_ROOT_PASSWORD_FILE")" exec mysql -u root "$MYSQL_DATABASE"' < "$migration"
+done
+)
+```
+
+确认两份结构迁移成功后，按下文迁移供应方令牌，再启动 Web 服务。旧账号使用原密码登录一次，服务端会把旧摘要迁移为 Argon2id。旧的“保持登录”凭据失效。登录客户端使用 HTTPS 请求正文传递密码；本地开发可通过回环访问。回滚时配套恢复旧镜像及切换前的数据备份，已迁移的密码无法转换回旧摘要。
+
+MySQL 从 Compose secret 文件读取两个数据库口令。原有 `.env` 变量名继续使用，请以仅部署账号可读的权限保存此文件。若构建环境需信任企业代理 CA，在构建命令末个 `-f` 位置加上 `-f compose.build-ca.yaml`；可通过 `ZENTAO_BUILD_CA_FILE` 选择宿主机 CA bundle。
+
+存储带令牌的供应方或使用 GitLab 回调时，叠加 `-f compose.integrations.yaml`。已启用集成加密的站点沿用原主密钥。首次启用时，建立仅部署账号可进入的目录，生成一次独立主密钥，将文件绝对路径配置到 `.env` 的 `ZENTAO_INTEGRATION_KEY_PATH`。以下命令创建新目录并防止覆盖已有密钥。在受限目录内给密钥文件读权限，以便以 UID 33 运行的 PHP 读取容器内的单个只读挂载。
+
+```sh
+( set -euC; umask 077; mkdir -m 700 ./integration-secrets; openssl rand -hex 32 > ./integration-secrets/integration.key; chmod 0444 ./integration-secrets/integration.key )
+```
+
+使用部署时相同的 Compose 文件、数据库和主密钥执行以下命令。保持 Nginx、其他应用副本和会写这个数据库的后台作业停止，直至第二次检查显示待迁移数为零。检查或迁移失败时保留维护窗口，核对表结构与原密钥后重试。没有已存凭据的实例也可以执行检查。
+
+```sh
+docker compose up -d --no-build --no-deps --wait php
+docker compose exec -T php php bin/php/migrate-provider-tokens.php --check &&
+docker compose exec -T php php bin/php/migrate-provider-tokens.php --apply &&
+docker compose exec -T php php bin/php/migrate-provider-tokens.php --check &&
+docker compose up -d --no-build --wait
+```
+
+迁移会在单个事务中加密历史明文令牌及 Jenkins 旧编码凭据，并校验已加密的记录。将主密钥与业务数据库分开保管及备份；回滚时恢复切换前的数据库、配置、对应的镜像和密钥。历史数据库备份仍可能包含可复用的令牌。对接服务若需要轮换凭据，先签发新令牌，在禅道保存并验证，再撤销旧令牌。
+
+GitLab 回调另需设置 `ZT_GITLAB_CALLBACK_BASE_URL` 为运维管理的 HTTPS 站点地址（含实际子路径），再编辑保存相应流水线以更新远端回调。手工配置的仓库回调可在受控终端执行 `docker compose exec -T php php bin/php/gitlab-repo-hook-token.php <禅道仓库ID>` 获取该仓库专用值，录入对应 GitLab 回调的 Secret Token。将输出作为密钥保管。更换主密钥前安排重新登记回调与服务凭据。企业内部 TLS 服务需给 PHP 容器配置受信任 CA；构建阶段使用的 apt CA 不会自动成为应用运行时的信任库。
+
 ### 将已有站点升级到 Docker 加固版本
 
 [加固提交 `d54ad08`](https://github.com/yes8080/zentaopms-docker/commit/d54ad080222f142c2d2c1aacfb1df72db5543d73) 同时更新了 PHP、Nginx、Redis 认证和容器网络。需要重新构建 PHP 和 Nginx 镜像，并用完整的 Compose 配置更新整套服务。单独执行 `restart` 或只重建 Nginx 无法应用全部改动。只升级这次 Docker 加固时，可以用同级 `zentaopms` 的当前源码构建。
@@ -200,7 +241,7 @@ docker compose -f compose.yaml -f compose.persistence.yaml -f compose.redis.yaml
 以下示例适用于已安装禅道、使用 `/data/zentao` 持久化并启用 Redis 的站点。
 
 1. 备份数据库、应用配置和附件。如果旧站使用无密码 Redis，先在「后台 → 系统 → 缓存设置」关闭缓存。
-2. 进入 `zentaopms-docker`，执行 `git pull --ff-only origin main`。保留已有 `.env`、数据库凭据、端口和持久化路径。用 `openssl rand -hex 24` 生成 Redis 密码并填入 `ZT_REDIS_PASSWORD`，或者沿用已有的合规密码。
+2. 进入 `zentaopms-docker`，执行 `git pull --ff-only origin main`。保留已有 `.env`、数据库凭据、端口和持久化路径。已有 22.7 数据库还须先执行上文的认证与集成迁移。用 `openssl rand -hex 24` 生成 Redis 密码并填入 `ZT_REDIS_PASSWORD`，或者沿用已有的合规密码。
 3. 在同一个终端执行以下命令。沿用原部署的 Compose 项目名，如果原来用 `-p` 指定了名称，在函数中加上相同的 `-p`。构建完成后，在维护窗口停止旧容器并重建项目网络，现有数据卷会继续使用。此停机步骤用于迁移网络拓扑的升级，常规镜像升级仍使用 `up`。
 
 ```sh
@@ -210,8 +251,8 @@ dc() {
 }
 
 dc config --quiet &&
-dc pull mysql redis &&
-dc build --pull php nginx &&
+dc pull redis &&
+dc build --pull mysql php nginx &&
 dc down &&
 dc up -d --no-build --wait &&
 ./scripts/check-deployment.sh http://127.0.0.1:8080 site
@@ -260,12 +301,21 @@ docker compose -f compose.yaml -f compose.hardened.yaml build --pull
 docker compose -f compose.yaml -f compose.hardened.yaml up -d --no-build --wait
 ```
 
+PHP 基于固定摘要的 Debian 13 官方 FPM 镜像，构建时从签名仓库安装可用更新。可访问 Alpine 和 Oracle Linux 官方软件源的构建机，还可以叠加系统更新配置，对加固版 Nginx 和 MySQL 刷新系统包。以下命令沿用同一个 Compose 项目，若使用自定义 CA，将 `-f compose.build-ca.yaml` 加在其他文件之后。构建成功后先复扫最终镜像，再用同一组文件在备份副本上验收。
+
+```sh
+docker compose -f compose.yaml -f compose.hardened.yaml -f compose.os-updates.yaml \
+  build --pull --no-cache mysql nginx
+```
+
+该配置保留包签名与 TLS 校验。软件源不可访问会中止构建。MySQL 检查已公布的 Oracle 安全公告所要求的最低包版本。未叠加时两者使用固定基础镜像自带的系统包。
+
 - PHP 和 Nginx 以只读根文件系统运行。禅道配置卷只读。PHP 仅为应用临时目录、系统临时目录和应用数据卷保留写权限。缓存、会话和本地日志随 PHP 容器重建清空。禅道内部仍可生成并读取临时 PHP 缓存，临时目录位于 Web 根目录之外。
 - Nginx 只将受支持的入口交给 PHP-FPM，拒绝访问 Adminer、隐藏文件、安装与升级入口以及数据目录中的服务端脚本。上传目录设置浏览器沙箱，Nginx 对数据卷保持只读。
 - 禅道按解析后的路由阻止在线编辑、二次开发、运行时插件变更和接收客户端 SQL 的图表预览接口。此配置会禁用对应的 BI 预览。需要的扩展由运维审查后随镜像发布。
 - 常规登录提交按来源 IP 限流并返回 HTTP 429，所有 PHP 请求另有通用速率限制，禅道保留自身的账号失败次数和锁定机制。对外服务时在可信反向代理终止 HTTPS，限制后端端口只接受该代理访问，并在代理按真实客户端地址统一限流。直接使用 Compose 端口时按连接来源计数。
-- MySQL 与 Web 文件隔离。业务账号仅使用应用库的权限，新数据库仅创建本地 root 账号。安全增强模式关闭 general log、服务端文件导入导出和客户端本地文件导入。PHP 镜像构建要求 PHP 8.4.27 或更新版本。
-- Nginx 只加入 Web 网络，MySQL 和 Redis 只加入内部数据网络，PHP 加入两者。PHP 以非 root 用户运行，PHP、Nginx 和 Redis 收敛 capabilities，并设置内存和进程数上限。
+- 加固数据库镜像使用固定摘要的 Go 工具链从校验过的上游源码重建 gosu 1.20，保留官方 MySQL 入口、mysql、mysqldump 和 mysqladmin，移除服务运行不需要的 mysqlsh。基础镜像和加固派生镜像应同时复扫。MySQL 与 Web 文件隔离。业务账号仅使用应用库的权限，新数据库仅创建本地 root 账号。安全增强模式关闭 general log、服务端文件导入导出和客户端本地文件导入。PHP 镜像构建要求 PHP 8.4.27 或更新版本。
+- PHP 健康检查验证 FPM 监听端口，Nginx 健康检查读取本机静态资源。应用访问通过宿主机验收脚本及真实登录单独验证。Nginx 只加入 Web 网络，MySQL 和 Redis 只加入内部数据网络，PHP 加入两者。PHP 和 Nginx 分别以 UID 33 和 101 运行，两个容器均移除全部 Linux capabilities；Redis 收敛 capabilities，并设置内存和进程数上限。
 - 容器标准输出使用轮转日志。需要跨容器重建保留的日志应交给部署环境的集中采集服务。禅道保存在数据库里的错误日志随数据库卷保留。
 
 ### 安全增强的功能限制与排查
@@ -289,6 +339,13 @@ docker compose -f compose.yaml -f compose.hardened.yaml up -d --no-build --wait
 ### 发布与运维检查
 
 发布前，从干净的指定源码提交构建，记录两个仓库的提交和镜像摘要。基础镜像固定到摘要，安全更新需更新摘要后重建。发布环境应生成 SBOM，并对最终部署的 PHP、Nginx、MySQL 及可选 Redis 镜像运行漏洞扫描。
+
+在构建好的 PHP 容器中可复跑写请求校验和备份文件边界测试。测试使用独立的临时数据。
+
+```sh
+docker compose exec -T php php /dev/stdin /var/www/zentao < scripts/check-write-guards.php
+docker compose exec -T php php /dev/stdin /var/www/zentao < scripts/check-backup-paths.php
+```
 
 使用 Trivy 时，对每个待发布镜像运行以下命令。将 `IMAGE` 设置为实际构建的镜像名称或摘要。
 

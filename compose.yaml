@@ -4,9 +4,10 @@ services:
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-zentao}
       MYSQL_USER: ${MYSQL_USER:-zentao}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_PASSWORD_FILE: /run/secrets/mysql_password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
       MYSQL_ROOT_HOST: localhost
+    secrets: [mysql_password, mysql_root_password]
     volumes:
       - mysql-data:/var/lib/mysql
     networks: [data]
@@ -34,12 +35,19 @@ services:
       MYSQL_PORT: "3306"
       MYSQL_DB: ${MYSQL_DATABASE:-zentao}
       MYSQL_USER: ${MYSQL_USER:-zentao}
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 9000) ? 0 : 1);"]
+      timeout: 4s
+      interval: 20s
+      start_interval: 2s
+      start_period: 15s
     networks: [web, data]
     depends_on:
       mysql:
         condition: service_healthy
     volumes:
       - app-config:/var/lib/zentao/config
+      - app-backup:/var/www/zentao/tmp/backup
       - app-data:/var/www/zentao/www/data
 
   nginx:
@@ -50,7 +58,14 @@ services:
         deployment: ./docker
       target: nginx
     depends_on:
-      - php
+      php:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-Y", "off", "-q", "-T", "3", "-O", "/dev/null", "http://127.0.0.1/favicon.ico"]
+      timeout: 5s
+      interval: 20s
+      start_interval: 2s
+      start_period: 15s
     networks: [web]
     ports:
       - "${ZENTAO_BIND:-127.0.0.1}:${ZENTAO_PORT:-8080}:80"
@@ -60,9 +75,16 @@ services:
 volumes:
   mysql-data:
   app-config:
+  app-backup:
   app-data:
 
 networks:
   web:
   data:
     internal: true
+
+secrets:
+  mysql_password:
+    environment: MYSQL_PASSWORD
+  mysql_root_password:
+    environment: MYSQL_ROOT_PASSWORD

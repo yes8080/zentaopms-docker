@@ -8,7 +8,7 @@ $policy = <<<'PHP'
         $method = strtolower((string)$this->methodName);
         if(in_array($module, array('editor', 'dev'), true)
             || ($module === 'extension' && !in_array($method, array('browse', 'structure'), true))
-            || ($module === 'chart' && $method === 'ajaxgetchart')
+            || ($module === 'chart' && in_array($method, array('ajaxgetchart', 'ajaxgetfilterform'), true))
             || ($module === 'user' && $method === 'login' && (isset($_GET['account']) || isset($_GET['password']))))
         {
             http_response_code(403);

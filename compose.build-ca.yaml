@@ -1,0 +1,11 @@
+services:
+  php:
+    build:
+      secrets: [apt_ca_bundle]
+  nginx:
+    build:
+      secrets: [apt_ca_bundle]
+
+secrets:
+  apt_ca_bundle:
+    file: ${ZENTAO_BUILD_CA_FILE:-/etc/ssl/certs/ca-certificates.crt}

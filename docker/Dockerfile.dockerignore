@@ -3,6 +3,7 @@
 .env.*
 **/.DS_Store
 config/my.php
+tmp/backup/
 tmp/session/
 tmp/apisession/
 tmp/log/*.php
@@ -12,3 +13,14 @@ extension/biz/
 extension/gitfox/
 extension/ipd/
 extension/max/
+# This deployment runs PHP-FPM. RoadRunner has separate workers and dependencies.
+framework/zand/
+roadrunner/
+bin/roadrunner/
+www/worker.php
+www/cron.php
+# Only the excluded commercial extensions reference this client-side reader.
+www/js/sheetjs/
+# The FPM application uses the bundled Vue 3 runtime under www/static/js.
+# Its templates and bundles do not import this standalone Vue 2 plugin set.
+www/js/vue/

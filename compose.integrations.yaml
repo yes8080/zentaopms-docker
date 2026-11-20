@@ -1,0 +1,11 @@
+services:
+  php:
+    environment:
+      ZT_GITLAB_CALLBACK_BASE_URL: ${ZT_GITLAB_CALLBACK_BASE_URL:-}
+      ZT_INTEGRATION_KEY_FILE: /run/secrets/zentao_integration_key
+    secrets:
+      - zentao_integration_key
+
+secrets:
+  zentao_integration_key:
+    file: ${ZENTAO_INTEGRATION_KEY_PATH:?Set ZENTAO_INTEGRATION_KEY_PATH to the private key file}
