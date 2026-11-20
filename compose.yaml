@@ -6,6 +6,7 @@ services:
       MYSQL_USER: ${MYSQL_USER:-zentao}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_ROOT_HOST: localhost
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:

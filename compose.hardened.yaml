@@ -1,0 +1,29 @@
+services:
+  mysql:
+    command:
+      - --general-log=OFF
+      - --general-log-file=/var/lib/mysql/general.log
+      - --secure-file-priv=NULL
+      - --local-infile=OFF
+
+  php:
+    build:
+      target: php-hardened
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,mode=1777
+      - /var/www/zentao/tmp:rw,noexec,nosuid,nodev,uid=33,gid=33,mode=0770
+    volumes:
+      - app-config:/var/lib/zentao/config:ro
+
+  nginx:
+    build:
+      target: nginx-hardened
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /var/cache/nginx:rw,noexec,nosuid,nodev
+      - /var/run:rw,noexec,nosuid,nodev

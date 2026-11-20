@@ -41,3 +41,18 @@ RUN --mount=type=secret,id=apt_ca_bundle,mode=0444 \
 FROM nginx:1.28-alpine AS nginx
 COPY --from=deployment nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=php-base /var/www/zentao/www/ /var/www/zentao/www/
+
+FROM php AS php-hardened
+COPY --from=deployment harden-router.php /usr/local/share/harden-router.php
+COPY --from=deployment --chmod=0755 hardened-entrypoint.sh /usr/local/bin/zentao-hardened-entrypoint
+RUN php -r 'exit(version_compare(PHP_VERSION, "8.4.27", ">=") ? 0 : 1);' \
+    && php /usr/local/share/harden-router.php \
+    && php -l framework/base/router.class.php \
+    && rm /usr/local/share/harden-router.php www/install.php www/upgrade.php \
+    && mv tmp /usr/local/share/zentao-runtime \
+    && mkdir tmp
+ENTRYPOINT ["zentao-hardened-entrypoint"]
+CMD ["php-fpm"]
+
+FROM nginx AS nginx-hardened
+COPY --from=deployment nginx.hardened.conf /etc/nginx/conf.d/default.conf

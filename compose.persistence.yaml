@@ -5,7 +5,7 @@ services:
 
   php:
     volumes:
-      - host-app-config:/var/lib/zentao/config
+      - app-config:/var/lib/zentao/config
       - host-app-data:/var/www/zentao/www/data
 
   nginx:
@@ -19,7 +19,8 @@ volumes:
       type: none
       o: bind
       device: "${ZENTAO_DATA_DIR:?Set ZENTAO_DATA_DIR to an absolute host directory}/mysql"
-  host-app-config:
+  app-config:
+    name: "${COMPOSE_PROJECT_NAME}_host-app-config"
     driver: local
     driver_opts:
       type: none
