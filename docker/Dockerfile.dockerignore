@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+**/.DS_Store
+config/my.php
+tmp/session/
+tmp/apisession/
+tmp/log/*.php
+tmp/model/open/
+www/data/upload/[0-9]*/
+extension/biz/
+extension/gitfox/
+extension/ipd/
+extension/max/

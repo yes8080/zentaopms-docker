@@ -1,0 +1,59 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-zentao}
+      MYSQL_USER: ${MYSQL_USER:-zentao}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  php:
+    build:
+      context: ../zentaopms
+      dockerfile: ../zentaopms-docker/docker/Dockerfile
+      additional_contexts:
+        deployment: ./docker
+      target: php
+    environment:
+      IS_CONTAINER: "true"
+      ZT_REQUEST_TYPE: PATH_INFO
+      ZT_DB_DRIVER: mysql
+      ZT_DB_PREFIX: zt_
+      ZT_DEFAULT_LANG: zh-cn
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DB: ${MYSQL_DATABASE:-zentao}
+      MYSQL_USER: ${MYSQL_USER:-zentao}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - app-config:/var/lib/zentao/config
+      - app-data:/var/www/zentao/www/data
+
+  nginx:
+    build:
+      context: ../zentaopms
+      dockerfile: ../zentaopms-docker/docker/Dockerfile
+      additional_contexts:
+        deployment: ./docker
+      target: nginx
+    depends_on:
+      - php
+    ports:
+      - "${ZENTAO_BIND:-127.0.0.1}:${ZENTAO_PORT:-8080}:80"
+    volumes:
+      - app-data:/var/www/zentao/www/data:ro
+
+volumes:
+  mysql-data:
+  app-config:
+  app-data:
