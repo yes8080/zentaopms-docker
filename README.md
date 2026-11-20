@@ -30,6 +30,8 @@ docker compose up -d --build --wait
 
 首次启动时，从 8080 端口访问 `/install.php`。数据库主机填 `mysql`，端口填 `3306`，数据库名和应用账号填写 `.env` 中对应的值，表前缀保留 `zt_`。完成安装并创建管理员后，用同一脚本的 `site` 模式检查首页，再登录。
 
+普通安装和管理员登录可以直接使用上述配置。保存带令牌的供应方或启用 GitLab 回调前，请先配置[集成主密钥](#集成主密钥)。
+
 ### 全新部署：持久化 + Redis + 安全增强
 
 按上面的步骤克隆两个仓库并创建 `.env`，然后选择本节流程。示例使用宿主机目录 `/data/zentao` 和本机端口 `8080`。
@@ -216,11 +218,19 @@ done
 
 MySQL 从 Compose secret 文件读取两个数据库口令。原有 `.env` 变量名继续使用，请以仅部署账号可读的权限保存此文件。若构建环境需信任企业代理 CA，在构建命令末个 `-f` 位置加上 `-f compose.build-ca.yaml`；可通过 `ZENTAO_BUILD_CA_FILE` 选择宿主机 CA bundle。
 
+#### 集成主密钥
+
 存储带令牌的供应方或使用 GitLab 回调时，叠加 `-f compose.integrations.yaml`。已启用集成加密的站点沿用原主密钥。首次启用时，建立仅部署账号可进入的目录，生成一次独立主密钥，将文件绝对路径配置到 `.env` 的 `ZENTAO_INTEGRATION_KEY_PATH`。以下命令创建新目录并防止覆盖已有密钥。在受限目录内给密钥文件读权限，以便以 UID 33 运行的 PHP 读取容器内的单个只读挂载。
 
 ```sh
 ( set -euC; umask 077; mkdir -m 700 ./integration-secrets; openssl rand -hex 32 > ./integration-secrets/integration.key; chmod 0444 ./integration-secrets/integration.key )
 ```
+
+`ZENTAO_INTEGRATION_KEY_PATH` 填宿主机上的文件路径。`compose.integrations.yaml` 会将该文件以只读方式挂载到 PHP。请将密钥文件内容留在受限目录内，且只向版本库提交示例路径。
+
+重建容器、迁移主机或从备份恢复时，使用与数据库备份配套的原主密钥。遗失或直接替换密钥会使现存供应方令牌无法解密，并使由旧密钥派生的 GitLab 回调令牌失效。
+
+#### 迁移已有供应方令牌
 
 使用部署时相同的 Compose 文件、数据库和主密钥执行以下命令。保持 Nginx、其他应用副本和会写这个数据库的后台作业停止，直至第二次检查显示待迁移数为零。检查或迁移失败时保留维护窗口，核对表结构与原密钥后重试。没有已存凭据的实例也可以执行检查。
 
