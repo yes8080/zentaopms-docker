@@ -4,6 +4,8 @@
 
 ## 启动
 
+需要宿主机持久化、Redis 和安全增强时，完成下方仓库准备后，直接进入[全新部署流程](#全新部署持久化--redis--安全增强)。
+
 将两个仓库放在同一父目录，并保留默认目录名。
 
 ```sh
@@ -12,6 +14,8 @@ git clone https://github.com/yes8080/zentaopms-docker.git
 cd zentaopms-docker
 cp .env.example .env
 ```
+
+### 默认快速启动
 
 在 `.env` 中设置 `MYSQL_PASSWORD` 和 `MYSQL_ROOT_PASSWORD`，然后运行：
 
@@ -22,6 +26,49 @@ docker compose up -d --build --wait
 启动后，在宿主机运行 `./scripts/check-deployment.sh http://127.0.0.1:8080 install` 检查安装入口。如果修改了监听地址或端口，请替换为实际地址。
 
 首次启动时，从 8080 端口访问 `/install.php`。数据库主机填 `mysql`，端口填 `3306`，数据库名和应用账号填写 `.env` 中对应的值，表前缀保留 `zt_`。完成安装并创建管理员后，用同一脚本的 `site` 模式检查首页，再登录。
+
+### 全新部署：持久化 + Redis + 安全增强
+
+按上面的步骤克隆两个仓库并创建 `.env`，然后选择本节流程。示例使用宿主机目录 `/data/zentao` 和本机端口 `8080`。
+
+#### 1. 准备持久化目录和密码
+
+```sh
+mkdir -p /data/zentao/mysql /data/zentao/config /data/zentao/data
+```
+
+编辑 `.env`，设置 `ZENTAO_DATA_DIR=/data/zentao`、`MYSQL_PASSWORD` 和 `MYSQL_ROOT_PASSWORD`。运行 `openssl rand -hex 24`，将生成的 48 个十六进制字符填入 `ZT_REDIS_PASSWORD`。安装期间保持默认监听地址 `127.0.0.1`。如果修改了端口，也要替换下面验收命令里的端口。
+
+#### 2. 启动服务并完成安装
+
+在 `zentaopms-docker` 目录运行：
+
+```sh
+docker compose -f compose.yaml -f compose.persistence.yaml -f compose.redis.yaml \
+  up -d --build --wait &&
+./scripts/check-deployment.sh http://127.0.0.1:8080 install
+```
+
+在宿主机打开 `http://127.0.0.1:8080/install.php`。数据库主机填 `mysql`，端口填 `3306`，数据库名、业务账号和密码使用 `.env` 中的 `MYSQL_DATABASE`、`MYSQL_USER` 和 `MYSQL_PASSWORD`，表前缀保留 `zt_`。完成安装、创建管理员并确认能登录后，再切换到加固配置。
+
+#### 3. 启用安全增强并验收
+
+沿用同一目录、项目名和 `.env`，在原有三个文件后叠加 `compose.hardened.yaml`：
+
+```sh
+dc() {
+  docker compose -f compose.yaml -f compose.persistence.yaml \
+    -f compose.redis.yaml -f compose.hardened.yaml "$@"
+}
+dc config --quiet &&
+dc build --pull php nginx &&
+dc up -d --no-build --wait &&
+./scripts/check-deployment.sh http://127.0.0.1:8080 site
+```
+
+切换后会继续使用原数据库、配置和附件目录。加固配置关闭安装入口，访问 `/install.php` 应返回 `404`。用刚创建的管理员登录，按[可选缓存](#可选缓存)一节核对后台 Redis 设置，并按[加固升级验收](#将已有站点升级到-docker-加固版本)一节验证 PHP 到 Redis 的认证和读写。
+
+如果 Redis 无法启动，参见[排查 Redis 启动失败](#排查-redis-启动失败)。如果容器已启动，但宿主机验收超时或返回 `504`，参见[排查容器已启动但首页返回 504](#排查容器已启动但首页返回-504)。
 
 ### 修改监听地址或端口
 
