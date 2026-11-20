@@ -10,7 +10,7 @@ services:
       ZT_CACHE_NAMESPACE: ${MYSQL_DATABASE:-zentao}
       ZT_REDIS_HOST: redis
       ZT_REDIS_PORT: "6379"
-      ZT_REDIS_SERIALIZER: php
+      ZT_REDIS_SERIALIZER: ${ZT_REDIS_SERIALIZER:-php}
     depends_on:
       redis:
         condition: service_healthy

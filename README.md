@@ -37,7 +37,9 @@ docker compose -f compose.yaml -f compose.apcu.yaml up -d --build --wait
 docker compose -f compose.yaml -f compose.redis.yaml up -d --build --wait
 ```
 
-禅道数据库中已保存的缓存设置优先于容器配置。已有站点启用或切换缓存时，在「后台 → 系统 → 缓存设置」确认驱动与所选配置一致。使用 Redis 时，主机填 `redis`，端口填 `6379`，数据库选 `0`，序列化方式选 `php`，用户名和密码留空。使用 APCu 时选择共享模式。命名空间可填应用数据库名。
+Redis 镜像同时支持 PHP 内置序列化器和 igbinary。默认使用 `php`，也可以在 `.env` 中设置 `ZT_REDIS_SERIALIZER=igbinary`。升级旧镜像时，先用上面的 `--build` 命令重建。
+
+禅道数据库中已保存的缓存设置优先于容器配置。已有站点启用或切换缓存时，在「后台 → 系统 → 缓存设置」确认驱动与序列化方式。使用 Redis 时，主机填 `redis`，端口填 `6379`，数据库选 `0`，用户名和密码留空。切换序列化方式时清理禅道缓存，避免读取旧格式数据。使用 APCu 时选择共享模式。命名空间可填应用数据库名。
 
 恢复默认缓存配置前，先在禅道后台关闭缓存，再省略缓存配置文件并添加 `--remove-orphans`。若正在使用宿主机目录挂载，继续传入 `-f compose.persistence.yaml`。下面的命令适用于默认命名卷部署，也会清理先前启用的 Redis 容器。
 
