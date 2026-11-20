@@ -4,6 +4,9 @@
 
 ## 启动
 
+> [!IMPORTANT]
+> **全新安装必须先完成安装向导，再启用安全增强。** 首次启动时省略 `-f compose.hardened.yaml`，访问 `/install.php` 完成安装并确认管理员可以登录。加固版 PHP 镜像移除了安装入口，启用后访问 `/install.php` 会返回 `404`，无法执行全新安装。已安装的加固站点请用验收脚本的 `site` 模式检查。
+
 需要宿主机持久化、Redis 和安全增强时，完成下方仓库准备后，直接进入[全新部署流程](#全新部署持久化--redis--安全增强)。
 
 将两个仓库放在同一父目录，并保留默认目录名。
@@ -48,6 +51,9 @@ docker compose -f compose.yaml -f compose.persistence.yaml -f compose.redis.yaml
   up -d --build --wait &&
 ./scripts/check-deployment.sh http://127.0.0.1:8080 install
 ```
+
+> [!IMPORTANT]
+> 如果是未完成安装的新站点，且误先启用了安全增强，请沿用原项目名和持久化目录，执行上面的三文件命令（含 `--build`）切回安装阶段。安装完成后再执行第 3 步。
 
 在宿主机打开 `http://127.0.0.1:8080/install.php`。数据库主机填 `mysql`，端口填 `3306`，数据库名、业务账号和密码使用 `.env` 中的 `MYSQL_DATABASE`、`MYSQL_USER` 和 `MYSQL_PASSWORD`，表前缀保留 `zt_`。完成安装、创建管理员并确认能登录后，再切换到加固配置。
 
