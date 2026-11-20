@@ -60,6 +60,26 @@ Redis 镜像同时支持 PHP 内置序列化器和 igbinary。默认使用 `php`
 
 禅道数据库中已保存的缓存设置优先于容器配置。已有站点在升级到需要 Redis 认证的版本前，先在「后台 → 系统 → 缓存设置」关闭旧 Redis 缓存。升级并启动后，再在后台启用 Redis，主机填 `redis`，端口填 `6379`，数据库选 `0`，用户名留空，密码填 `ZT_REDIS_PASSWORD` 对应的值。切换序列化方式时清理禅道缓存。使用 APCu 时选择共享模式。命名空间可填应用数据库名。
 
+
+### 排查 Redis 启动失败
+
+如果启动时出现 `dependency failed to start`，且 Redis 以退出码 `1` 停止，先查看 Redis 日志。密码含非十六进制字符或少于 32 个字符时，Redis 会退出，依赖它的 PHP 和 Nginx 也无法启动。用 `openssl rand -hex 24` 生成 48 个十六进制字符，将结果填入现有 `.env` 的 `ZT_REDIS_PASSWORD`。
+
+以下命令适用于同时启用宿主机持久化、Redis 和安全增强的站点。沿用部署时的项目名和 Compose 文件。首次切换到安全增强配置时，先确认站点已完成安装或数据库升级。
+
+```sh
+dc() {
+  docker compose -f compose.yaml -f compose.persistence.yaml \
+    -f compose.redis.yaml -f compose.hardened.yaml "$@"
+}
+dc logs --tail=30 redis
+dc up -d --build --wait
+dc ps
+dc exec -T redis sh -ec 'REDISCLI_AUTH="$ZT_REDIS_PASSWORD" redis-cli ping'
+```
+
+最后一条命令应返回 `PONG`。随后按上文在禅道后台保存 Redis 设置，使用与 `.env` 相同的密码，再刷新页面并检查新增错误日志。
+
 恢复默认缓存配置前，先在禅道后台关闭缓存，再省略缓存配置文件并添加 `--remove-orphans`。若正在使用宿主机目录挂载，继续传入 `-f compose.persistence.yaml`。下面的命令适用于默认命名卷部署，也会清理先前启用的 Redis 容器。
 
 ```sh
