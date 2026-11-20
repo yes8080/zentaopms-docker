@@ -91,9 +91,30 @@ docker compose -f compose.yaml -f compose.persistence.yaml -f compose.redis.yaml
 
 已有站点切换前，先备份并把原命名卷中的数据迁入新目录。从官方一体化镜像迁移时，应导出并导入数据库、迁移附件，并核对新容器的数据库连接设置。部署后如需更换宿主机路径，先备份并迁移三个子目录，停止容器并删除对应的三个 `host-*` Docker 卷定义，再用新路径重新启动。[官方 Docker 部署文档](https://www.zentao.net/book/zentaopms/docker-1111.html)
 
-## 源码更新和数据
+## 部署更新与排查
 
-更新相邻源码检出后，在本仓库按所选配置再次运行启动命令。Compose 命名卷保存数据库、安装生成的配置和上传文件。MySQL 初始化变量仅在空数据库卷上生效。迁移已有安装时，请先备份数据库、应用配置和上传文件，再导入对应卷。
+`zentaopms` 和 `zentaopms-docker` 可以分别更新。构建时会读取同级 `zentaopms` 的当前源码，将应用打包进 PHP 镜像，将 Web 资源打包进 Nginx 镜像。部署新版时，先确认所需改动已拉取到对应的仓库，再在 `zentaopms-docker` 执行 Compose 命令。生产发布时记录两个仓库的提交，便于复现部署。
+
+| 改动 | 应用方式 |
+| --- | --- |
+| 禅道版本更新，或同时修改 PHP 和 Web 静态资源 | 用 `up -d --build --wait` 更新整套部署。如果版本要求数据库升级，按下文先完成升级再启用安全增强配置。 |
+| PHP 业务代码、Redis 驱动、PHP 扩展或镜像内 PHP 配置 | 重建镜像并替换 `php` 容器。 |
+| 镜像内的 Nginx 配置 | 重建镜像并替换 `nginx` 容器。 |
+| `.env` 中的监听地址或端口 | 只需重建 `nginx` 容器。见[修改监听地址或端口](#修改监听地址或端口)。 |
+| Redis 序列化器 | 更新 `.env` 并重建 `php` 容器。已有站点还应核对禅道后台的缓存设置，切换格式时清理旧缓存。 |
+
+以下示例只更新 PHP，适用于已经启动并同时使用宿主机目录挂载和 Redis 的站点：
+
+```sh
+docker compose -f compose.yaml -f compose.persistence.yaml -f compose.redis.yaml \
+  up -d --build --no-deps php
+```
+
+执行时沿用当前部署的项目名和全部 `-f` 配置，包括已启用的安全增强配置。更新后用相同配置执行 `docker compose ps`，再访问受影响的页面验证。排查 Redis 等运行时警告时，在「后台 → 系统 → 错误日志」按时间查看重建后是否还有新增记录，数据库中的历史记录仍会显示。
+
+如果启动时提示 `MYSQL_PASSWORD` 或 `MYSQL_ROOT_PASSWORD` 缺少值，检查 `.env` 中是否填写了这两项，以及 Shell 是否导出了同名变量。用当前部署的 Compose 文件执行 `docker compose config --quiet` 可以验证配置且避免输出密码。MySQL 初始化变量仅在空数据库卷上生效，已有实例更换密码时需修改数据库账号并同步禅道连接配置。
+
+常规镜像更新会复用现有数据卷。迁移已有安装或进行数据库升级前，请备份数据库、应用配置和上传文件。
 
 ## 安全增强
 
