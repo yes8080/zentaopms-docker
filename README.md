@@ -19,7 +19,9 @@ cp .env.example .env
 docker compose up -d --build --wait
 ```
 
-首次启动时，从 8080 端口访问 `/install.php`。数据库主机填 `mysql`，端口填 `3306`，数据库名和应用账号填写 `.env` 中对应的值，表前缀保留 `zt_`。完成安装并创建管理员后，从首页登录。
+启动后，在宿主机运行 `./scripts/check-deployment.sh http://127.0.0.1:8080 install` 检查安装入口。如果修改了监听地址或端口，请替换为实际地址。
+
+首次启动时，从 8080 端口访问 `/install.php`。数据库主机填 `mysql`，端口填 `3306`，数据库名和应用账号填写 `.env` 中对应的值，表前缀保留 `zt_`。完成安装并创建管理员后，用同一脚本的 `site` 模式检查首页，再登录。
 
 ### 修改监听地址或端口
 
@@ -144,7 +146,7 @@ docker compose -f compose.yaml -f compose.persistence.yaml -f compose.redis.yaml
 
 1. 备份数据库、应用配置和附件。如果旧站使用无密码 Redis，先在「后台 → 系统 → 缓存设置」关闭缓存。
 2. 进入 `zentaopms-docker`，执行 `git pull --ff-only origin main`。保留已有 `.env`、数据库凭据、端口和持久化路径。用 `openssl rand -hex 24` 生成 Redis 密码并填入 `ZT_REDIS_PASSWORD`，或者沿用已有的合规密码。
-3. 在同一个终端执行以下命令。沿用原部署的 Compose 项目名，如果原来用 `-p` 指定了名称，在函数中加上相同的 `-p`。构建结束后，`up` 替换容器时会有短暂中断，现有数据卷会继续使用。
+3. 在同一个终端执行以下命令。沿用原部署的 Compose 项目名，如果原来用 `-p` 指定了名称，在函数中加上相同的 `-p`。构建完成后，在维护窗口停止旧容器并重建项目网络，现有数据卷会继续使用。此停机步骤用于迁移网络拓扑的升级，常规镜像升级仍使用 `up`。
 
 ```sh
 dc() {
@@ -155,10 +157,44 @@ dc() {
 dc config --quiet &&
 dc pull mysql redis &&
 dc build --pull php nginx &&
-dc up -d --no-build --wait
+dc down &&
+dc up -d --no-build --wait &&
+./scripts/check-deployment.sh http://127.0.0.1:8080 site
 ```
 
-用 `dc ps` 检查四个服务都已启动，用 `dc exec -T php id -u` 确认 PHP 以 UID `33` 运行。按[排查 Redis 启动失败](#排查-redis-启动失败)一节验证 Redis 返回 `PONG`，然后登录原站、打开历史附件，并用新密码在后台重新启用 Redis。保存后按升级时间检查新增错误日志。
+保留原来的 Compose 项目名和持久化路径。`down` 不加 `-v`。检查地址应使用宿主机实际发布的地址和端口。
+
+用 `dc ps` 检查四个服务都已启动，用 `dc exec -T php id -u` 确认 PHP 以 UID `33` 运行。按[排查 Redis 启动失败](#排查-redis-启动失败)一节验证 Redis 返回 `PONG`，再从 PHP 容器确认能用同一密码连接 Redis。然后登录原站、打开历史附件，并用新密码在后台重新启用 Redis。
+
+```sh
+dc exec -T php php -r '
+$r = new Redis();
+if (!$r->connect("redis", 6379, 3) || !$r->auth(getenv("ZT_REDIS_PASSWORD"))) exit(1);
+$key = "deployment-check:" . bin2hex(random_bytes(8));
+if (!$r->setex($key, 30, "ok") || $r->get($key) !== "ok") exit(1);
+echo "PHP Redis read/write OK", PHP_EOL;
+'
+```
+
+保存后按升级时间检查新增错误日志。
+
+### 排查容器已启动但首页返回 504
+
+`up --wait` 检查容器状态。从宿主机运行 `./scripts/check-deployment.sh http://127.0.0.1:8080 site` 验证 HTTP 链路。检查通过后，再用已有账号登录、打开历史附件并核对缓存设置。
+
+加固模式下，如果 `/install.php` 立即返回 `404`，而首页超时或返回 `504`，用部署时相同的 Compose 文件查看 `logs --tail=80 nginx php mysql redis`。未启用 Redis 时省略 `redis`。如果 Nginx 日志显示 `while connecting to upstream`，先用 `docker network inspect` 核对网络成员。正常情况下 Nginx 和 PHP 在 `web` 网络，PHP、MySQL 和可选 Redis 在 `data` 网络。用以下命令比较重新访问首页前后的转发计数。即使请求超时，也继续执行下一条命令。
+
+```sh
+diag_dir=$(mktemp -d)
+sudo iptables-save -c -t filter > "$diag_dir/before"
+curl --noproxy '*' -sS --max-time 5 -o /dev/null http://127.0.0.1:8080/
+sudo iptables-save -c -t filter > "$diag_dir/after"
+diff -u "$diag_dir/before" "$diag_dir/after"
+```
+
+重点查看 `FORWARD` 和 `DOCKER-FORWARD` 的计数。使用原生 nftables 时检查相应的 forward 链。
+
+如果已确认请求在宿主机转发链被丢弃，且旧网桥缺少 Docker 生成的规则，可在维护窗口按上文重建当前项目的容器和网络。使用已有镜像时只需 `dc down` 和 `dc up -d --no-build --wait`，随后重新运行宿主机验收。保留持久卷及原有防火墙策略。
 
 ## 安全增强
 
