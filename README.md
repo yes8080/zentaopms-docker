@@ -136,6 +136,30 @@ docker compose -f compose.yaml -f compose.persistence.yaml -f compose.redis.yaml
 
 常规镜像更新会复用现有数据卷。迁移已有安装或进行数据库升级前，请备份数据库、应用配置和上传文件。
 
+### 将已有站点升级到 Docker 加固版本
+
+[加固提交 `d54ad08`](https://github.com/yes8080/zentaopms-docker/commit/d54ad080222f142c2d2c1aacfb1df72db5543d73) 同时更新了 PHP、Nginx、Redis 认证和容器网络。需要重新构建 PHP 和 Nginx 镜像，并用完整的 Compose 配置更新整套服务。单独执行 `restart` 或只重建 Nginx 无法应用全部改动。只升级这次 Docker 加固时，可以用同级 `zentaopms` 的当前源码构建。
+
+以下示例适用于已安装禅道、使用 `/data/zentao` 持久化并启用 Redis 的站点。
+
+1. 备份数据库、应用配置和附件。如果旧站使用无密码 Redis，先在「后台 → 系统 → 缓存设置」关闭缓存。
+2. 进入 `zentaopms-docker`，执行 `git pull --ff-only origin main`。保留已有 `.env`、数据库凭据、端口和持久化路径。用 `openssl rand -hex 24` 生成 Redis 密码并填入 `ZT_REDIS_PASSWORD`，或者沿用已有的合规密码。
+3. 在同一个终端执行以下命令。沿用原部署的 Compose 项目名，如果原来用 `-p` 指定了名称，在函数中加上相同的 `-p`。构建结束后，`up` 替换容器时会有短暂中断，现有数据卷会继续使用。
+
+```sh
+dc() {
+  docker compose -f compose.yaml -f compose.persistence.yaml \
+    -f compose.redis.yaml -f compose.hardened.yaml "$@"
+}
+
+dc config --quiet &&
+dc pull mysql redis &&
+dc build --pull php nginx &&
+dc up -d --no-build --wait
+```
+
+用 `dc ps` 检查四个服务都已启动，用 `dc exec -T php id -u` 确认 PHP 以 UID `33` 运行。按[排查 Redis 启动失败](#排查-redis-启动失败)一节验证 Redis 返回 `PONG`，然后登录原站、打开历史附件，并用新密码在后台重新启用 Redis。保存后按升级时间检查新增错误日志。
+
 ## 安全增强
 
 先按前文完成安装或数据库升级，再启用生产运行配置。首次安装和升级应在仅运维可访问的环境中进行。后续 Compose 命令继续传入安全增强配置文件，使用宿主机挂载或缓存时同时传入相应配置文件。
