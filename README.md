@@ -193,6 +193,8 @@ docker compose -f compose.yaml -f compose.persistence.yaml -f compose.redis.yaml
 
 常规镜像更新会复用现有数据卷。迁移已有安装或进行数据库升级前，请备份数据库、应用配置和上传文件。
 
+应用提交 `7ee393cb` 的内置还原会把 `.sql.php` 备份的保护头交给 MySQL，导致 SQL 1064，附件还原随后中止。已有备份可用修复后的 PHP 镜像直接还原。如果见过这项错误，请先保留原备份，在独立副本上重新还原，并对照数据库记录及附件内容核验结果。
+
 ### 已安装 22.7 站点的认证与集成迁移
 
 先记录当前镜像 ID。维护窗口内停止 Web 写入，备份数据库、配置卷和附件卷；旧容器中的内置备份如尚未导出，在替换容器前复制 `/var/www/zentao/tmp/backup`。新部署将该路径挂到项目的 `app-backup` 卷。即使应用临时目录使用 tmpfs，也可跨容器重建保留备份。自定义过备份目录的站点应单独持久化该目录。异机恢复仍需导出备份并妥善保管解密所需凭据。
@@ -340,7 +342,7 @@ docker compose -f compose.yaml -f compose.hardened.yaml -f compose.os-updates.ya
 
 发布前，从干净的指定源码提交构建，记录两个仓库的提交和镜像摘要。基础镜像固定到摘要，安全更新需更新摘要后重建。发布环境应生成 SBOM，并对最终部署的 PHP、Nginx、MySQL 及可选 Redis 镜像运行漏洞扫描。
 
-在构建好的 PHP 容器中可复跑写请求校验和备份文件边界测试。测试使用独立的临时数据。
+在构建好的 PHP 容器中可复跑写请求、备份文件边界和 SQL 还原回归。还原测试使用临时文件与内存 SQLite，分别检查普通 SQL、带保护头的 SQL，以及无效保护头被拒绝后原数据仍可读取。
 
 ```sh
 docker compose exec -T php php /dev/stdin /var/www/zentao < scripts/check-write-guards.php

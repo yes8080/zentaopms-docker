@@ -1,5 +1,5 @@
 <?php declare(strict_types=1);
-/* Run with PHP 8.4 on a filesystem supporting symlinks. All fixtures are temporary. */
+/* Run with PHP 8.4, PDO SQLite and symlink support. All fixtures are temporary. */
 $source = realpath($argv[1] ?? dirname(__DIR__, 2) . '/zentaopms');
 if(!$source || !is_file("$source/module/backup/model.php"))
 {
@@ -8,8 +8,9 @@ if(!$source || !is_file("$source/module/backup/model.php"))
 }
 
 define('DS', DIRECTORY_SEPARATOR);
-class model { public object $config; public object $app; }
+class model { public object $config; public object $app; public PDO $dbh; public object $dao; }
 require "$source/module/backup/model.php";
+require "$source/lib/zdb/zdb.class.php";
 
 function check(bool $ok, string $message): void
 {
@@ -51,10 +52,26 @@ try
 
     mkdir("$work/app/www/public", 0700, true);
     symlink("$work/app/www/public", "$work/web-alias");
+    $dbh = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     $backup = new backupModel();
+    $backup->dbh = $dbh;
+    $backup->dao = new class { public function clearCache(): void {} };
     $backup->app = new class("$work/app/") {
+        public int $databaseRequests = 0;
         public function __construct(private string $root) {}
         public function getAppRoot(): string { return $this->root; }
+        public function loadClass(string $name): zdb
+        {
+            check($name === 'zdb', "Unexpected class requested: $name");
+            ++$this->databaseRequests;
+            return new class extends zdb {
+                /* Adapt MySQL table discovery only; importStream and SQL execution are real. */
+                public function getAllTables($type = 'base'): array
+                {
+                    return $this->dbh->query("SELECT name, type FROM sqlite_schema WHERE type = 'table'")->fetchAll(PDO::FETCH_KEY_PAIR);
+                }
+            };
+        }
     };
     foreach([DS, "$work/app/www", "$work/app/www/public", "$work/web-alias"] as $forbidden)
     {
@@ -90,6 +107,32 @@ try
     file_put_contents($malformed, $content);
     check(!$backup->removeFileHeader($malformed, $malformedPlain), 'Accepted a missing protection header');
     check(file_get_contents($malformed) === $content && !file_exists($malformedPlain), 'Damaged a malformed backup');
+
+    foreach(['sql', 'sql.php'] as $suffix)
+    {
+        $file = "$root/20200102030411.$suffix";
+        $sql  = "CREATE TABLE restored (value TEXT);\n"
+              . "INSERT INTO restored VALUES ('first $suffix');\n"
+              . "INSERT INTO restored VALUES ('second $suffix');\n";
+        file_put_contents($file, $sql);
+        if($suffix === 'sql.php') check($backup->addFileHeader($file), 'Could not protect the restore fixture');
+        $bytes = file_get_contents($file);
+        $result = $backup->restoreSQL($file);
+        check($result->result === true, "Restore failed for .$suffix: $result->error");
+        $rows = $dbh->query('SELECT value FROM restored ORDER BY rowid')->fetchAll(PDO::FETCH_COLUMN);
+        check($rows === ["first $suffix", "second $suffix"], "Incomplete restore for .$suffix");
+        check(file_get_contents($file) === $bytes, "Restore modified .$suffix backup");
+    }
+
+    $databaseRequests = $backup->app->databaseRequests;
+    foreach(['malformed' => "-- invalid protection header\n$sql", 'header-only' => "<?php die(); ?>\n"] as $label => $bytes)
+    {
+        file_put_contents($malformed, $bytes);
+        check($backup->restoreSQL($malformed)->result === false, "Accepted $label protected backup");
+        check($backup->app->databaseRequests === $databaseRequests, "Reached the database for $label backup");
+        check(file_get_contents($malformed) === $bytes, "Modified $label protected backup");
+    }
+    check($dbh->query('SELECT value FROM restored ORDER BY rowid')->fetchAll(PDO::FETCH_COLUMN) === $rows, 'Invalid restore changed existing rows');
 
     file_put_contents("$outside/$old.sql", "-- unrelated fixture\n");
     check($backup->getBackupFile("../other/$old", 'sql') === false, 'Accepted a name outside the backup directory');
