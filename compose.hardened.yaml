@@ -31,6 +31,7 @@ services:
       - /var/www/zentao/tmp:rw,noexec,nosuid,nodev,uid=33,gid=33,mode=0770
     volumes:
       - app-config:/var/lib/zentao/config:ro
+      - app-backup:/var/lib/zentao/backup
 
   nginx:
     build:
@@ -46,3 +47,6 @@ services:
     tmpfs:
       - /var/cache/nginx:rw,noexec,nosuid,nodev
       - /var/run:rw,noexec,nosuid,nodev
+
+volumes:
+  app-backup:

@@ -5,6 +5,7 @@
 config/my.php
 tmp/session/
 tmp/apisession/
+tmp/backup/
 tmp/log/*.php
 tmp/model/open/
 www/data/upload/[0-9]*/

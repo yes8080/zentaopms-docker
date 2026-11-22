@@ -1,0 +1,7 @@
+{
+    "name": "zentao-deployment/spreadsheet-dependencies",
+    "description": "Patched spreadsheet library for the hardened ZenTao image",
+    "require": {"phpoffice/phpspreadsheet": "1.30.8"},
+    "replace": {"ezyang/htmlpurifier": "4.18.0", "psr/simple-cache": "1.0.1"},
+    "config": {"allow-plugins": false, "platform-check": true}
+}

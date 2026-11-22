@@ -12,7 +12,7 @@ RUN --mount=type=secret,id=apt_ca_bundle,mode=0444 \
 
 WORKDIR /var/www/zentao
 COPY --chown=root:root . .
-COPY --from=deployment php.ini /usr/local/etc/php/conf.d/zentao.ini
+COPY --from=deployment --chmod=0644 php.ini /usr/local/etc/php/conf.d/zentao.ini
 RUN chmod -R a+rX /var/www/zentao \
     && mkdir -p /var/lib/zentao/config \
     && touch /var/lib/zentao/config/my.php \
@@ -49,26 +49,42 @@ RUN --mount=type=secret,id=apt_ca_bundle,mode=0444 \
     esac; \
     rm -rf /tmp/pear
 
-FROM nginx:1.30.7-alpine@sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c54193075997b3a97e3 AS nginx
+FROM nginx:1.30.7-alpine-slim@sha256:8c950211a641ec5b23f265450517001f6bcca533666120ebe36cb4cff3d00a55 AS nginx
 COPY --from=deployment nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=php-base /var/www/zentao/www/ /var/www/zentao/www/
 
 FROM php AS php-hardened
+RUN --mount=from=deployment,source=spreadsheet,target=/tmp/zentao-spreadsheet,ro \
+    --mount=type=secret,id=apt_ca_bundle,mode=0444 \
+    sh /tmp/zentao-spreadsheet/install.sh
 COPY --from=deployment harden-router.php /usr/local/share/harden-router.php
+COPY --from=deployment harden-files.php harden-log-urls.php /usr/local/share/
+COPY --from=deployment --chmod=0644 private-upload.php /var/www/zentao/www/private-upload.php
 COPY --from=deployment --chmod=0755 hardened-entrypoint.sh /usr/local/bin/zentao-hardened-entrypoint
 RUN php -r 'exit(version_compare(PHP_VERSION, "8.4.27", ">=") ? 0 : 1);' \
     && php /usr/local/share/harden-router.php \
+    && php /usr/local/share/harden-files.php \
+    && php /usr/local/share/harden-log-urls.php \
     && php -l framework/base/router.class.php \
+    && php -l module/file/model.php \
+    && php -l module/file/control.php \
+    && php -l module/common/model.php \
+    && php -l www/private-upload.php \
+    && rm /usr/local/share/harden-files.php /usr/local/share/harden-log-urls.php \
     && rm /usr/local/share/harden-router.php www/install.php www/upgrade.php \
     && mv tmp /usr/local/share/zentao-runtime \
+    && install -d -o www-data -g www-data -m 0700 /var/lib/zentao/backup \
+    && ln -s /var/lib/zentao/backup /usr/local/share/zentao-runtime/backup \
     && mkdir tmp \
     && apt-mark manual libfreetype6 libicu72 libjpeg62-turbo libpng16-16 libzip4 \
     && apt-get purge -y --auto-remove autoconf dpkg-dev g++ gcc libc6-dev make pkg-config re2c \
         libfreetype6-dev libicu-dev libjpeg62-turbo-dev libpng-dev libzip-dev \
     && php -r 'foreach (["bcmath", "gd", "intl", "mysqli", "pdo_mysql", "zip"] as $ext) if (!extension_loaded($ext)) exit(1);' \
-    && printf 'log_errors=On\nerror_log=/proc/self/fd/2\n' > /usr/local/etc/php/conf.d/zentao-hardened.ini
+    && printf 'error_log=/proc/self/fd/2\n' > /usr/local/etc/php/conf.d/zentao-hardened.ini \
+    && printf '%s\n' '[www]' 'access.format = "%R %t %m %s %d"' > /usr/local/etc/php-fpm.d/zz-zentao.conf
 ENTRYPOINT ["zentao-hardened-entrypoint"]
 CMD ["php-fpm"]
 
 FROM nginx AS nginx-hardened
-COPY --from=deployment nginx.hardened.conf /etc/nginx/conf.d/default.conf
+COPY --from=deployment --chmod=0644 nginx.hardened.conf /etc/nginx/conf.d/default.conf
+COPY --from=deployment --chmod=0644 fastcgi.hardened.conf /etc/nginx/zentao-fastcgi.conf
