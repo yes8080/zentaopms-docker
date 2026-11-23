@@ -25,29 +25,30 @@ ARG ZENTAO_CACHE_EXTENSION=none
 RUN --mount=type=secret,id=apt_ca_bundle,mode=0444 \
     set -eu; \
     if [ -s /run/secrets/apt_ca_bundle ]; then export CURL_CA_BUNDLE=/run/secrets/apt_ca_bundle; fi; \
-    install_pecl() { \
-        package="$1"; checksum="$2"; shift 2; \
-        archive="/tmp/$package.tgz"; \
-        curl --fail --silent --show-error --location "https://pecl.php.net/get/$package.tgz" -o "$archive"; \
-        printf '%s  %s\n' "$checksum" "$archive" | sha256sum -c -; \
-        pecl install "$@" "$archive" </dev/null; \
-        rm -f "$archive"; \
+    install_extension() { \
+        repository="$1"; tag="$2"; checksum="$3"; shift 3; \
+        build_dir="$(mktemp -d)"; \
+        curl --fail --silent --show-error --location --retry 2 \
+            "https://codeload.github.com/$repository/tar.gz/refs/tags/$tag" -o "$build_dir/source.tgz"; \
+        printf '%s  %s\n' "$checksum" "$build_dir/source.tgz" | sha256sum -c -; \
+        tar -xzf "$build_dir/source.tgz" -C "$build_dir" --strip-components=1; \
+        (cd "$build_dir" && phpize && ./configure "$@" && make -j2 && make install); \
+        rm -rf "$build_dir"; \
     }; \
     case "$ZENTAO_CACHE_EXTENSION" in \
         none) exit 0 ;; \
         apcu) \
-            install_pecl apcu-5.1.28 ca9c1820810a168786f8048a4c3f8c9e3fd941407ad1553259fb2e30b5f057bf; \
+            install_extension krakjoe/apcu v5.1.28 0e60ba9d0fa4021c57a70c071f3d8f71de236275d084e560d5959fec4edd8c32; \
             docker-php-ext-enable apcu ;; \
         redis) \
-            install_pecl igbinary-3.2.16 8bf25d465abc7973d9e2c9a3039a5f8eea635b23bc1477017ff3999ff95836da; \
+            install_extension igbinary/igbinary 3.2.16 941f1cf2ccbecdc1c221dbfae9213439d334be5d490a2f3da2be31e8a00b0cdb; \
             docker-php-ext-enable igbinary; \
-            install_pecl redis-6.3.0 0d5141f634bd1db6c1ddcda053d25ecf2c4fc1c395430d534fd3f8d51dd7f0b5 \
-                --configureoptions 'enable-redis-igbinary="yes"'; \
+            install_extension phpredis/phpredis 6.3.0 cb8f81df1a275599e4f8ddcfec7e1f65ed1953e6f5673649149fd680ebff4cad \
+                --enable-redis-igbinary; \
             docker-php-ext-enable redis; \
             php -r 'exit(extension_loaded("igbinary") && defined("Redis::SERIALIZER_IGBINARY") ? 0 : 1);' ;; \
         *) echo "Unsupported cache extension: $ZENTAO_CACHE_EXTENSION" >&2; exit 1 ;; \
-    esac; \
-    rm -rf /tmp/pear
+    esac
 
 FROM nginx:1.30.7-alpine-slim@sha256:8c950211a641ec5b23f265450517001f6bcca533666120ebe36cb4cff3d00a55 AS nginx
 COPY --from=deployment nginx.conf /etc/nginx/conf.d/default.conf

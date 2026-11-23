@@ -73,3 +73,20 @@ docker inspect "$(docker compose ps -q php)" \
 ```
 
 宿主机持久化部署应将 `<项目名>_host-app-config` 挂到 `/var/lib/zentao/config`。用 `docker volume inspect <卷名> --format '{{index .Options "device"}}'` 核对它指向原来的配置目录，例如 `/data/zentao/config`。登录确认原项目和附件可读后，可以保留旧卷。需要清理时，先确认旧卷未被任何容器引用且其中没有需要保留的配置。
+
+### PHP 缓存扩展下载失败
+
+PHP 镜像从各扩展的 GitHub 上游仓库下载锁定版本的源码归档，校验 SHA-256 后编译。构建主机需要允许访问 `codeload.github.com`。如果代理使用内部 CA，并且构建报证书链错误，可以创建以下本地 Compose 覆盖文件。将 `file` 指向构建机上包含代理 CA 的受信任证书包。
+
+```yaml
+services:
+  php:
+    build:
+      secrets:
+        - apt_ca_bundle
+secrets:
+  apt_ca_bundle:
+    file: /etc/ssl/certs/ca-certificates.crt
+```
+
+手工构建时，将此文件追加到完整的 Compose 文件列表。使用 `zentaoctl install` 时，在实例环境文件的 `COMPOSE_FILE` 中先列出与所选持久化和缓存模式匹配的配置，再追加此覆盖文件。例如 Redis 加宿主机持久化的新装可用 `COMPOSE_FILE=compose.yaml:compose.persistence.yaml:compose.redis.yaml:/绝对路径/compose.build-ca.yaml`。
