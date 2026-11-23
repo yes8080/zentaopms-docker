@@ -173,7 +173,7 @@ def _resume_service(ctx, marker, job):
     _wait_mysql(ctx, mysql)
     docker(ctx, "start", php)
     if job.get("refill"):
-        _extract(ctx, ["docker", "exec", "-i", "--user", "0", php, "sh", "-ec",
+        _extract(ctx, ["docker", "exec", "-i", php, "sh", "-ec",
                        'mkdir -p -- "$1"; exec tar -C "$1" -xpf -', "sh", job["builtin"]],
                  Path(job["output"]) / "backup.tar.gz")
         job["refill"] = False
@@ -244,8 +244,9 @@ def backup(ctx, output, *, dry_run=False):
         if docker(ctx, "inspect", "--format", "{{.State.ExitCode}}", nginx_id) not in ("0", "143"):
             raise Error("Web 入口未正常停止，已中止冷备。")
         # Old images keep the built-in backups in tmpfs. Read them while PHP is
-        # still up; the web entry has already drained.
-        _copy_archive(ctx, ["exec", "--user", "0", php_id, "sh", "-ec",
+        # still up; the web entry has already drained. Keep the container's
+        # user: hardened PHP has no capabilities and owns the private directory.
+        _copy_archive(ctx, ["exec", php_id, "sh", "-ec",
                             'if test -d "$1"; then exec tar -C "$1" -cf - .; fi; '
                             'if test "$1" = /var/www/zentao/tmp/backup; then '
                             'exec tar -cf - --files-from /dev/null; fi; exit 1', "sh", builtin],
@@ -473,7 +474,7 @@ def uninstall(ctx, dry_run):
             if nginx["state"] == "running":
                 docker(ctx, "stop", "--timeout", "120", nginx["id"])
             try:
-                _copy_archive(ctx, ["exec", "--user", "0", php, "sh", "-ec",
+                _copy_archive(ctx, ["exec", php, "sh", "-ec",
                                     'if test -d "$1"; then exec tar -C "$1" -cf - .; fi; '
                                     'exec tar -cf - --files-from /dev/null', "sh", backup_dir], path)
             except BaseException:

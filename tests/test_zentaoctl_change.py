@@ -108,6 +108,7 @@ class ChangeTests(unittest.TestCase):
         services["nginx"].update(ports=["127.0.0.1:${ZENTAO_PORT}:80"], volumes=["data:/var/www/zentao/www/data:ro"])
         (root / "compose.yaml").write_text(json.dumps({"services": services, "volumes": {"db": {}, "cfg": {}, "data": {}}}))
         self.addCleanup(ctx.dc, "down", "-t", "1", "--volumes")
+        ctx.dc("pull", "--policy", "missing")
         ctx.dc("up", "-d", "--pull", "never", "--wait")
         original = ctx.snapshot()
         ctx.save(original)

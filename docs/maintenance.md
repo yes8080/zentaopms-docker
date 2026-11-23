@@ -40,6 +40,16 @@ install -d -m 700 "$HOME/.config/zentao"
 
 遇到阻断时，先核对**原项目名、完整且有序的 Compose 文件、MySQL/配置/附件卷及其实际宿主机路径**。启用了 Redis 的两个项目可能都有四个服务，却使用完全不同的数据库。旧容器上的标签可帮助找回原来的配置位置。恢复所需覆盖文件和环境文件后，再重新预检。[历史挂载与孤立 Redis 排查](operations.md#docker-重启后恢复-redis-部署)
 
+如果只有 Redis 报告历史 Compose 文件清单不同，用 `docker inspect` 对比 Redis 和 PHP 容器的 `com.docker.compose.project.config_files` 与 `com.docker.compose.project.working_dir`。从普通配置切到加固时，Compose 可能沿用配置未变化的 Redis 容器。确认工作目录一致，且 Redis 只少了加固覆盖文件后，可安排短暂维护。使用原项目和完整配置，在原目录执行：
+
+```sh
+docker compose --env-file "$PWD/.env" -p zentao \
+  up -d --no-deps --no-build --pull never --force-recreate --wait redis
+./scripts/zentaoctl adopt --project zentao --env-file "$PWD/.env" --dry-run
+```
+
+示例假定完整的 `COMPOSE_FILE` 已写入环境文件，终端没有导出不同的文件清单。重建期间请求可能短暂失败，Redis 内存缓存会清空。
+
 ## 日常操作
 
 | 场景 | 命令 |

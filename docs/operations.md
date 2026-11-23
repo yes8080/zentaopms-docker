@@ -109,4 +109,14 @@ trivy image --format spdx-json --output image.spdx.json "$IMAGE"
 trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 "$IMAGE"
 ```
 
+如果默认漏洞数据库镜像站不可达，且构建机可以访问官方 GHCR 仓库，先下载数据库，再使用同一缓存扫描。代理使用内部 CA 时，应让运行 Trivy 的进程信任该 CA。
+
+```sh
+trivy image --download-db-only --db-repository ghcr.io/aquasecurity/trivy-db:2
+trivy image --skip-db-update --scanners vuln --severity HIGH,CRITICAL --exit-code 1 "$IMAGE"
+```
+
+使用离线缓存前先检查数据库的更新时间。下载失败时，发布验收仍需完成漏洞扫描。
+
+
 历史站点还需在部署时轮换已暴露的密码和密钥、清理测试账号、核查既有 MySQL root 授权及受影响的文件和数据。建议在禅道后台启用登录验证码并提高口令策略。镜像部署不会清理既有数据库里的账号或处理历史入侵。先核查来源目录、扩展及持久化文件，再将历史数据迁入干净实例。
