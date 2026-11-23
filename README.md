@@ -126,13 +126,25 @@ Redis 镜像同时支持 PHP 内置序列化器和 igbinary。默认使用 `php`
 COMPOSE_FILE=compose.yaml:compose.persistence.yaml:compose.redis.yaml:compose.hardened.yaml
 ```
 
+将配置写入现有 `.env`，替换同名行。在终端单独输入 `COMPOSE_FILE=...` 只设置 Shell 变量。临时设置可用 `export COMPOSE_FILE=...`。保存 `.env` 后，清除终端中的变量并验证持久配置：
+
+```sh
+unset COMPOSE_FILE
+docker compose config --services
+grep -E '^(ZENTAO_DATA_DIR|COMPOSE_FILE)=' .env
+```
+
+确认列出 `mysql`、`redis`、`php`、`nginx`。使用宿主机持久化时，同时核对 `ZENTAO_DATA_DIR` 仍指向原数据目录。若文件清单有疑问，可对原 Redis 容器执行 `docker inspect --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' <容器名>`，核对文件和顺序。
+
+如果普通 `docker compose up` 创建了新的命名卷、把原 Redis 标为孤立容器，或原站点出现安装向导，先核对原文件集、项目名和数据目录。核对前保留现有卷和容器，避免初始化新库或执行 `--remove-orphans`、`down -v`。
+
 在部署目录执行以下命令。脚本先确认四个服务都在生效的 Compose 配置中，然后等待服务就绪并检查站点入口。使用了自定义端口时，请传入实际地址。
 
 ```sh
 ./scripts/recover-redis-site.sh http://127.0.0.1:8080
 ```
 
-Redis 配置为四个服务启用了 `restart: unless-stopped`。应用这次配置时使用完整文件集执行恢复脚本，Compose 会更新已有容器的配置。Docker 恢复后可自动启动此前运行的容器，手动停止的容器仍需显式启动。自动启动没有 Compose 的 Redis 健康等待顺序，短暂不可用时应运行上述脚本检查。运行中 Redis 断连仍可能使 PHP 请求失败。
+Redis 配置为四个服务启用了 `restart: unless-stopped`。应用这次配置时使用完整文件集执行恢复脚本，Compose 会更新已有容器的配置。Docker 恢复后可自动启动此前运行的容器，手动停止的容器仍需显式启动。自动启动没有 Compose 的 Redis 健康等待顺序，短暂不可用时应运行上述脚本检查。运行中 Redis 断连仍可能使 PHP 请求失败。首次应用重启策略请使用恢复脚本，`docker compose restart` 只重启现有容器。恢复后核对四个容器的 `RestartPolicy.Name` 均为 `unless-stopped`，并登录确认原有项目和附件可读。
 
 ### 排查 Redis 启动失败
 
