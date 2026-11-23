@@ -531,7 +531,20 @@ def _harden_identity(ctx, files, op):
             raise Error(f"{service} 的镜像、项目路径或 Compose 文件不属于此次切换。")
         live = info["mounts"]
         old = previous["mounts"].get(service, {})
-        if set(live) - set(old) - ({backup} if service == "php" else set()):
+        unexpected = set(live) - set(old) - ({backup} if service == "php" else set())
+        # The pinned Redis image declares VOLUME /data even when persistence
+        # is disabled and Compose contains no Redis volume definition.
+        redis = model["services"][service]
+        if service == "redis" and unexpected == {"/data"} and not redis.get("volumes"):
+            mount = live["/data"]
+            if mount["type"] == "volume" and re.fullmatch(r"[a-f0-9]{64}", mount["name"]):
+                volume = json.loads(ctx.docker("volume", "inspect", "--format", "{{json .}}", mount["name"]))
+                image_volumes = json.loads(ctx.docker("image", "inspect", "--format",
+                                                      "{{json .Config.Volumes}}", info["image_id"])) or {}
+                if ("/data" in image_volumes and volume["Driver"] == "local" and not volume.get("Options")
+                        and volume.get("Labels") == {"com.docker.volume.anonymous": ""}):
+                    unexpected.remove("/data")
+        if unexpected:
             raise Error(f"{service} 出现未知挂载。")
         for dest, mount in old.items():
             entry = live.get(dest, {})
