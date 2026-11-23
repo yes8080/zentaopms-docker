@@ -1,1 +1,4 @@
 .env
+
+.zentaoctl/
+__pycache__/

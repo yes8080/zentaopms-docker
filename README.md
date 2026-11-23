@@ -6,6 +6,7 @@
 
 | 场景 | 指南 |
 | --- | --- |
+| 使用维护工具新装、接管旧站、备份或恢复 | [zentaoctl 操作指南](docs/maintenance.md) |
 | 全新安装 | [默认快速启动](#默认快速启动) · [持久化、Redis 和安全增强](#全新部署持久化--redis--安全增强) |
 | 已有站点更新或 Docker 重启后恢复 | [更新与恢复](docs/operations.md) |
 | 调整端口、缓存或数据目录 | [部署配置](docs/configuration.md) |

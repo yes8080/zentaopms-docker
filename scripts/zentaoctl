@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""Single entry point for maintaining a ZenTao Compose deployment."""
+import sys
+sys.dont_write_bytecode = True
+
+from zentaoctl_lib.cli import main
+
+if __name__ == "__main__":
+    sys.exit(main())
