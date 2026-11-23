@@ -118,6 +118,22 @@ Redis 镜像同时支持 PHP 内置序列化器和 igbinary。默认使用 `php`
 禅道数据库中已保存的缓存设置优先于容器配置。已有站点在升级到需要 Redis 认证的版本前，先在「后台 → 系统 → 缓存设置」关闭旧 Redis 缓存。升级并启动后，再在后台启用 Redis，主机填 `redis`，端口填 `6379`，数据库选 `0`，用户名留空，密码填 `ZT_REDIS_PASSWORD` 对应的值。切换序列化方式时清理禅道缓存。使用 APCu 时选择共享模式。命名空间可填应用数据库名。
 
 
+### Docker 重启后恢复 Redis 部署
+
+在部署目录的 `.env` 中记录实际使用的完整 Compose 文件集。保留原项目名、数据卷以及覆盖文件的顺序。下面是 Linux 上使用宿主机持久化目录、Redis 和加固配置的示例。使用命名卷时省略 `compose.persistence.yaml`。如果原部署还有其他覆盖文件，将它们按原顺序一并列出。
+
+```dotenv
+COMPOSE_FILE=compose.yaml:compose.persistence.yaml:compose.redis.yaml:compose.hardened.yaml
+```
+
+在部署目录执行以下命令。脚本先确认四个服务都在生效的 Compose 配置中，然后等待服务就绪并检查站点入口。使用了自定义端口时，请传入实际地址。
+
+```sh
+./scripts/recover-redis-site.sh http://127.0.0.1:8080
+```
+
+Redis 配置为四个服务启用了 `restart: unless-stopped`。应用这次配置时使用完整文件集执行恢复脚本，Compose 会更新已有容器的配置。Docker 恢复后可自动启动此前运行的容器，手动停止的容器仍需显式启动。自动启动没有 Compose 的 Redis 健康等待顺序，短暂不可用时应运行上述脚本检查。运行中 Redis 断连仍可能使 PHP 请求失败。
+
 ### 排查 Redis 启动失败
 
 如果启动时出现 `dependency failed to start`，且 Redis 以退出码 `1` 停止，先查看 Redis 日志。密码含非十六进制字符或少于 32 个字符时，Redis 会退出，依赖它的 PHP 和 Nginx 也无法启动。用 `openssl rand -hex 24` 生成 48 个十六进制字符，将结果填入现有 `.env` 的 `ZT_REDIS_PASSWORD`。

@@ -1,5 +1,12 @@
 services:
+  mysql:
+    restart: unless-stopped
+
+  nginx:
+    restart: unless-stopped
+
   php:
+    restart: unless-stopped
     build:
       args:
         ZENTAO_CACHE_EXTENSION: redis
@@ -17,6 +24,7 @@ services:
         condition: service_healthy
 
   redis:
+    restart: unless-stopped
     image: redis:7.4-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
     networks: [data]
     user: redis
